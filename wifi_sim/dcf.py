@@ -193,3 +193,11 @@ class DCFSimulator:
                         self._restart_station(station)
                     else:
                         station.backoff = self._draw_backoff(station.retries)
+
+    def run(self) -> DCFResult:
+        if self._has_run:
+            raise RuntimeError("DCFSimulator.run() can only be called once")
+        self._has_run = True
+        self.env.process(self._channel_loop())
+        self.env.run(until=self.config.duration_s * 1_000_000)
+        return self.result

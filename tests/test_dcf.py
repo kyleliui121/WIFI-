@@ -30,6 +30,19 @@ class DCFTests(unittest.TestCase):
         self.assertEqual(result.dropped_frames, 2)
         self.assertEqual(result.successful_frames, 0)
 
+    def test_access_delay_includes_data_and_ack(self):
+        config = DCFConfig(stations=1, duration_s=0.00032)
+        sim = DCFSimulator(config)
+        sim.stations[0].backoff = 0
+        result = sim.run()
+        self.assertEqual(result.successful_frames, 1)
+        expected_us = (config.difs_us +
+                       config.frame_time_us(config.payload_bytes) +
+                       config.sifs_us + config.frame_time_us(config.ack_bytes))
+        self.assertAlmostEqual(result.access_delays_us[0], expected_us)
+        with self.assertRaises(RuntimeError):
+            sim.run()
+
     def test_reproducible_and_attempt_accounting(self):
         cfg = DCFConfig(stations=10, duration_s=0.1, seed=123)
         first = DCFSimulator(cfg).run()
