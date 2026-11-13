@@ -4,7 +4,6 @@
 
 - [题目四：完整原文整理](docs/题目四-原文整理.md)（原题不简化）
 - [建模假设、参数、统计口径与局限性](docs/methodology.md)
-- [课程论文初稿](docs/课程论文初稿.md)（SimPy 4.1.2 已复核，仍需人工审稿）
 - [官方实验 CSV 摘要](data/official_summary.csv) · [Bianchi 对照](data/official_bianchi.csv) · [实验元信息](data/official_metadata.json)
 - [GitHub Actions 正式验证与图表下载](https://github.com/kyleliui121/WIFI-/actions/runs/43408103434)（Python 3.11 / SimPy 4.1.2，全部步骤成功）
 
@@ -67,8 +66,8 @@ python -m wifi_sim.experiments --out results --duration 10 --seeds 42 43 44 --bi
 - P-EDCA 自定义紧急门限：5ms 或重传次数>=2，使用 AIFSN=1、CW=(1,3)。
 - NPCA 仅允许高优先级在主信道受邻网占用时切换到独立辅助信道，切换时延 100 μs。
 
-本项目使用**明确标注的课程简化假设**，不是 IEEE 802.11bn 的标准级 PHY/MAC 仿真或真实系统预测。尤其是 NPCA 外部占用日历采用离线生成并保证帧不跨越外部忙起点，会高估外部占用可预知性，审查论文时请特别注意。
+本项目使用**明确标注的课程简化假设**，不是 IEEE 802.11bn 的标准级 PHY/MAC 仿真或真实系统预测。尤其是 NPCA 外部占用日历采用离线生成并保证帧不跨越外部忙起点，会高估外部占用可预知性，分析结果时请特别注意。
 
 ## 复核结果（2026-11-13）
 
-GitHub Actions 在真实 `simpy==4.1.2` 下执行了 12 项单元测试以及 30 次 Bianchi 校验和 36 次 A 班方案仿真，均通过；官方 CSV 汇总与本地先前预验证完全一致。**图表和论文仍基于课程的理想化 P-EDCA/NPCA 模型，不能视为 IEEE 802.11bn 设备测量。**
+GitHub Actions 在真实 `simpy==4.1.2` 下执行了 12 项单元测试以及 30 次 Bianchi 校验和 36 次 A 班方案仿真，均通过；官方 CSV 汇总与本地先前预验证完全一致。**仿真结果仍基于课程的理想化 P-EDCA/NPCA 模型，不能视为 IEEE 802.11bn 设备测量。**
