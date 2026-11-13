@@ -1,44 +1,68 @@
 # 面向车载低时延业务的 Wi-Fi 优先信道接入仿真
 
-课程设计选题四：DCF、EDCA 与 802.11bn P-EDCA/NPCA 简化模型（A 班）。
+**通信网课程设计（A 班）**：比较 DCF、EDCA、EDCA+P-EDCA 和 EDCA+P-EDCA+NPCA 四类简化信道接入方案，评估高优先级远程泊车控制的尾时延、超时率及低优先级吞吐量。
 
-## 课程设计要求
+- [题目四：完整原文整理](docs/题目四-原文整理.md)（原题不简化）
+- [建模假设、参数、统计口径与局限性](docs/methodology.md)
+- [课程论文初稿](docs/课程论文初稿.md)（需核对数据与学校格式）
 
-[题目四完整原文整理](docs/题目四-原文整理.md)（场景假设、A/B 班参数、必做内容、选做拓展、评价指标、必交图表与参考资料）。
+## 模块结构
 
-> 任务要求单独放在 `docs/` 中。按照课程题目图片转录，仅做 Markdown 排版，不缩减要求。
+```text
+wifi_sim/
+  dcf.py          饱和 DCF 基线与最简命令行
+  theory.py       Bianchi 经典模型 / 有限重传校正
+  priority.py     DCF、EDCA、P-EDCA、NPCA 共用 SimPy 事件仿真
+  experiments.py  A 班仿真矩阵、随机种子、CSV 输出
+  plotting.py     四种必交图表生成（PNG / PDF）
+  __main__.py     单次 DCF 运行入口
+tests/            关键退避与事件行为回归测试
+```
 
-## 当前实现：第一阶段 DCF 基线
+**实现范围**：全部必做模块（DCF、Bianchi 校验、EDCA、P-EDCA、NPCA、三档 N × 四方案 × 三种子 × 10 秒、指标与四类图表）。选做的隐藏终端、AC_VI/BK、误码与 ns-3 交叉校验暂不包含。
 
-`wifi_sim/dcf.py`：基于 SimPy 的单信道饱和 DCF 仿真器。包含独立站点退避计数、DIFS、9 μs 时隙、二进制指数退避、同时发送碰撞、冻结/恢复退避、最多 7 次重传、超限丢帧、ACK 时间及随机种子。时钟单位为 **μs**，按下次竞争事件跳转；即使跳过了空闲时隙，退避计数仍以整数时隙递减。
+## 运行环境
 
-当前阶段使用 **全部站点均为 1500 B 饱和流量**，为下一步 `N=5…50` 的 Bianchi DCF 理论校验建立基线。尚未加入 A 班的高/低优先级业务、EDCA、P-EDCA、NPCA，也未绘制课程要求的对比图。
-
-### 安装与运行
-
-Python 3.10+：
+Python 3.10+，安装 `simpy`、`scipy`、`numpy`、`matplotlib`：
 
 ```bash
 python -m venv .venv
-# Windows: .venv\Scripts\activate
-# Linux/macOS: source .venv/bin/activate
+# Windows 激活虚拟环境：.venv\Scripts\activate
+# macOS/Linux：source .venv/bin/activate
 python -m pip install -r requirements.txt
-python -m wifi_sim --stations 10 --duration 10 --seed 42 --output results/dcf_n10.json
 python -m unittest discover -s tests -v
 ```
 
-主要命令行参数：`--stations` 站点数、`--duration` 秒、`--frame-bytes` 数据帧字节数、`--seed` 随机种子、`--output` JSON 输出路径。默认分别为 `10、10、1500、42`。
+### 单次 DCF 快速检查
 
-JSON 包含发送尝试数、碰撞尝试数、碰撞概率、成功帧、丢弃帧、吞吐量，以及成功帧平均/p99/p99.9 接入时延。**碰撞概率分母是发送尝试次数而不是竞争轮数**；双站点同时碰撞会计入 2 次失败尝试。时延从待发送帧就绪开始计算到成功收到 ACK 为止。
+```bash
+python -m wifi_sim --stations 10 --duration 10 --seed 42 --output results/dcf_n10.json
+```
 
-### 简化假设与边界
+### 一次性生成 A 班全部实验结果和图表
 
-- 1 个共享信道，所有站点互相可听，无隐藏终端、物理误码与传播时延；每个站点始终有一帧待发送（饱和）。
-- 默认 `slot=9 μs`、`SIFS=16 μs`、`DIFS=SIFS+2slot=34 μs`、前导 `20 μs`、速率 `54 Mbit/s`、ACK `14 B`，帧长按 `20 + 8×字节数/54` μs 计算。
-- CW 初始 15、最大 1023；发生第 `r` 次失败后的竞争窗口为 `min((15+1)×2^r−1,1023)`，均匀抽取 `0…CW`。`retry_limit=7` 指初传之外最多再重传 7 次。
-- 成功占用时间简化为 `DATA + SIFS + ACK`；碰撞没有 ACK，站点按等长 `SIFS + ACK` 时间等待作为 **ACK 超时近似**，之后统一等待 DIFS。该处理不是精确 802.11 PHY ACK timeout/EIFS，需在报告中说明，并与 Bianchi 理论对比时分析潜在差异。
-- 统计窗口只计入在仿真截止前已完成成功或失败等待过程的尝试；吞吐量按设定观察时长计算。
+```bash
+python -m wifi_sim.experiments --out results --duration 10 --seeds 42 43 44 --bianchi-step 5
+```
 
-## 下一步
+生成文件：
 
-对饱和 DCF 扫描 `N=5…50`，用 Bianchi 固定点方程求理论碰撞概率，对比模拟曲线并解释差异。通过该验证后再扩展 EDCA、P-EDCA 与 NPCA。
+| 文件 | 用途 |
+|---|---|
+| `results/bianchi.csv` | DCF 饱和 N=5,10,…,50：经典 Bianchi、有限重传理论与仿真均值/标准差 |
+| `results/summary.csv` | 36 次对比仿真（3 档 N × 4 种方案 × 3 个种子），每次 >=10 秒 |
+| `results/high_delays.csv` | 每个成功的高优先级数据帧的接入时延，用于 CCDF |
+| `results/metadata.json` | 实验时长、随机种子、运行矩阵 |
+| `results/01_*.png/.pdf` 至 `results/04_*.png/.pdf` | 四类必交图 |
+
+为了更密集地验证 Bianchi，可以用 `--bianchi-step 1` 扫描 N=5 到 50 每一个整数。测试时可临时设置 `--duration 0.1`，但这**不满足课程正式实验至少 10 秒**的要求，不能将短时实验当作正式结果。
+
+## A 班指定参数
+
+- N=10、20、30，两个高优先级站点；高优先级 100 B/10 ms，截止 10 ms；低优先级 1500 B 饱和。
+- 主信道邻网外部忙期平均 2 ms、长期目标外部占用率 30%。
+- AIFSN/CW 高优先级 = 2/(3,7)，低优先级 = 3/(15,1023)，重传上限 7。
+- P-EDCA 自定义紧急门限：5ms 或重传次数>=2，使用 AIFSN=1、CW=(1,3)。
+- NPCA 仅允许高优先级在主信道受邻网占用时切换到独立辅助信道，切换时延 100 μs。
+
+本项目使用**明确标注的课程简化假设**，不是 IEEE 802.11bn 的标准级 PHY/MAC 仿真或真实系统预测。尤其是 NPCA 外部占用日历采用离线生成并保证帧不跨越外部忙起点，会高估外部占用可预知性，审查论文时请特别注意。
