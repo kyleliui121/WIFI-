@@ -1,0 +1,48 @@
+name: Validate and reproduce Wi-Fi course simulation
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install real SimPy and plotting dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Unit tests on real SimPy
+        run: python -m unittest discover -s tests -v
+      - name: Run full A-class experiment matrix
+        run: python -m wifi_sim.experiments --out results --duration 10 --seeds 42 43 44 --bianchi-step 5
+      - name: Verify output files
+        run: |
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+          result = Path("results")
+          metadata = json.loads((result / "metadata.json").read_text())
+          assert metadata["duration_s"] >= 10
+          assert metadata["simpy_version"] != "UNVERIFIED_TEST_SCHEDULER"
+          assert metadata["experiment_runs"] == 36
+          assert metadata["dcf_validation_runs"] == 30
+          with (result / "summary.csv").open() as f:
+              assert len(list(csv.DictReader(f))) == 36
+          for prefix in ("01_dcf_bianchi", "02_high_delay_ccdf",
+                         "03_high_p999_vs_n", "04_low_throughput_vs_n"):
+              assert (result / f"{prefix}.png").stat().st_size > 2000
+              assert (result / f"{prefix}.pdf").stat().st_size > 2000
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wifi-a-class-results
+          path: results/
+          if-no-files-found: warn
