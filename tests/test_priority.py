@@ -6,6 +6,70 @@ from wifi_sim.theory import collision_probability, attempt_probability
 
 
 class PriorityMACTests(unittest.TestCase):
+    def _guard_scenario(self, mode, short_ready_us):
+        sim = MACSimulator(MACConfig(stations=3, high_stations=1,
+                                     mode=mode, duration_s=0.001))
+        sim.external_events = [(200.0, True), (400.0, False)]
+        sim.next_arrival = sim.config.duration_us
+        for node in sim.nodes:
+            node.queue.clear()
+            node.backoff = 0
+            node.ifs_remaining = 0.0
+        short, long = sim.nodes[:2]
+        short.queue.append(Packet(0.0))
+        short.ifs_remaining = short_ready_us
+        long.queue.append(Packet(0.0))
+        sim.report.high_generated = 1
+        return sim, short, long
+
+    def test_deferred_long_frame_keeps_later_short_frame_wakeup(self):
+        for mode in MODES:
+            with self.subTest(mode=mode):
+                sim, short, long = self._guard_scenario(mode, 50.0)
+                sim._start_ready_transmissions(0.0)
+                self.assertIsNone(sim.busy[0])
+                self.assertEqual(sim._next_event(0.0), 50.0)
+                sim._advance(50.0)
+                sim._start_ready_transmissions(50.0)
+                self.assertEqual(sim.busy[0].contenders, [short])
+                self.assertFalse(long.transmitting)
+                self.assertLessEqual(sim.busy[0].end_us, 200.0)
+
+    def test_simultaneous_short_frame_and_exact_fit_are_admitted(self):
+        for mode in MODES:
+            with self.subTest(mode=mode):
+                sim, short, long = self._guard_scenario(mode, 0.0)
+                boundary = sim.config.tx_us([sim.config.high_frame_bytes])
+                sim.external_events[0] = (boundary, True)
+                sim._start_ready_transmissions(0.0)
+                self.assertEqual(sim.busy[0].contenders, [short])
+                self.assertEqual(sim.busy[0].end_us, boundary)
+                self.assertFalse(long.transmitting)
+                self.assertEqual(sim.report.attempts, 1)
+
+    def test_deferral_advances_time_and_long_frame_resumes(self):
+        for mode in MODES:
+            with self.subTest(mode=mode):
+                sim, _, _ = self._guard_scenario(mode, 50.0)
+                next_event = sim._next_event
+                wakeups = []
+
+                def checked_next_event(now):
+                    self.assertLess(len(wakeups), 1000)
+                    if wakeups:
+                        self.assertGreater(now, wakeups[-1])
+                    wakeups.append(now)
+                    future = next_event(now)
+                    self.assertGreater(future, now)
+                    return future
+
+                sim._next_event = checked_next_event
+                result = sim.run()
+                self.assertEqual(sim.env.now, sim.config.duration_us)
+                self.assertEqual(result.high_success, 1)
+                self.assertLess(result.high_delays_us[0], 200.0)
+                self.assertGreater(result.low_success, 0)
+
     def test_four_modes_and_flow_accounting(self):
         for mode in MODES:
             with self.subTest(mode=mode):

@@ -181,7 +181,6 @@ class MACSimulator:
         self.external_events = self._external_events()
         self.external_index = 0
         self.next_arrival = 0.0
-        self.guard_main = False
         self._has_run = False
         for node in self.nodes:
             if not node.high:
@@ -340,7 +339,6 @@ class MACSimulator:
             _, busy = self.external_events[self.external_index]
             self.external_busy = busy
             self.external_index += 1
-            self.guard_main = False
             self._channel_resets(0)
             self._switch_update(now)
 
@@ -374,21 +372,20 @@ class MACSimulator:
                 continue
             if not self._is_idle(channel):
                 continue
-            if channel == 0 and self.guard_main:
-                continue
             ready = [n for n in self.nodes if n.channel == channel
                      and self._eligible(n) and self._time_until_ready(n) <= EPS]
+            # Admission is per frame: a deferred long frame must not block
+            # shorter contenders in the remaining primary idle interval.
+            if channel == 0:
+                ready = [n for n in ready if now + self.config.tx_us([
+                    self.config.high_frame_bytes if n.high
+                    else self.config.low_frame_bytes]) <= self._next_external() + EPS]
             if not ready:
                 continue
             sizes = [self.config.high_frame_bytes if node.high
                      else self.config.low_frame_bytes for node in ready]
             duration = self.config.tx_us(sizes)
             if now + duration > self.config.duration_us + EPS:
-                continue
-            # External busy calendar is exogenous. Model atomic frames: never
-            # initiate a frame that cannot finish before the next busy start.
-            if channel == 0 and now + duration > self._next_external() + EPS:
-                self.guard_main = True
                 continue
             self.report.attempts += len(ready)
             for node in ready:
@@ -409,9 +406,9 @@ class MACSimulator:
         for node in self.nodes:
             if not self._eligible(node):
                 continue
-            if node.channel == 0 and self.guard_main:
-                continue
             delta = self._time_until_ready(node)
+            # Ready but non-fitting frames wait for a future event. Only
+            # positive countdowns may schedule another contention wakeup.
             if delta > EPS:
                 future.append(now + delta)
         return min(v for v in future if v > now + EPS)
