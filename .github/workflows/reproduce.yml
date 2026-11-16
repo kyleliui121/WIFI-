@@ -22,24 +22,8 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Run full A-class experiment matrix
         run: python -m wifi_sim.experiments --out results --duration 10 --seeds 42 43 44 --bianchi-step 5
-      - name: Verify output files
-        run: |
-          python - <<'PY'
-          import csv, json
-          from pathlib import Path
-          result = Path("results")
-          metadata = json.loads((result / "metadata.json").read_text())
-          assert metadata["duration_s"] >= 10
-          assert metadata["simpy_version"] != "UNVERIFIED_TEST_SCHEDULER"
-          assert metadata["experiment_runs"] == 36
-          assert metadata["dcf_validation_runs"] == 30
-          with (result / "summary.csv").open() as f:
-              assert len(list(csv.DictReader(f))) == 36
-          for prefix in ("01_dcf_bianchi", "02_high_delay_ccdf",
-                         "03_high_p999_vs_n", "04_low_throughput_vs_n"):
-              assert (result / f"{prefix}.png").stat().st_size > 2000
-              assert (result / f"{prefix}.pdf").stat().st_size > 2000
-          PY
+      - name: Audit final configuration and frame accounting
+        run: python -m wifi_sim.acceptance results --write-report
       - uses: actions/upload-artifact@v4
         if: always()
         with:
