@@ -131,11 +131,14 @@ class MACResult:
     secondary_success: int = 0
     switch_events: int = 0
     unfinished_high: int = 0
+    high_packets: list[dict] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         c = self.config
         resolved = self.high_success + self.high_dropped
         deadline_failures = self.high_success_late + self.high_dropped
+        observed = [p for p in self.high_packets if p['deadline_observed']]
+        observed_failed = sum(not p['on_time_success'] for p in observed)
         p999 = percentile(self.high_delays_us, 0.999)
         return {
             "mode": c.mode, "stations": c.stations, "seed": c.seed,
@@ -146,6 +149,12 @@ class MACResult:
             "deadline_us": c.deadline_us,
             "high_success_late": self.high_success_late,
             "high_deadline_failure": deadline_failures,
+            "high_deadline_observed": len(observed),
+            "high_deadline_observed_failure": observed_failed,
+            "deadline_observed_failure_pct": (100 * observed_failed / len(observed)
+                                               if observed else None),
+            "high_unfinished_overdue": sum(p['outcome'] == 'unfinished' and
+                                            p['deadline_observed'] for p in self.high_packets),
             "high_mean_ms": (fmean(self.high_delays_us) / 1000
                              if self.high_delays_us else None),
             "high_p99_ms": percentile(self.high_delays_us, 0.99),
@@ -277,6 +286,7 @@ class MACSimulator:
                 if len(tx.contenders) == 1:
                     node.queue.popleft()
                     if node.high:
+                        self._record_high(node, packet, 'success', now)
                         delay = now - packet.created_us
                         self.report.high_delays_us.append(delay)
                         self.report.high_success += 1
@@ -297,6 +307,7 @@ class MACSimulator:
                     if packet.retries > self.config.retry_limit:
                         node.queue.popleft()
                         if node.high:
+                            self._record_high(node, packet, 'dropped', now)
                             self.report.high_dropped += 1
                         else:
                             self.report.low_dropped += 1
@@ -309,6 +320,17 @@ class MACSimulator:
                     node.pending_target = None
                     self._start_switch(node, target, now)
             self._channel_resets(channel)
+
+    def _record_high(self, node: Node, packet: Packet, outcome: str,
+                     completed_us: float | None) -> None:
+        deadline = packet.created_us + self.config.deadline_us
+        self.report.high_packets.append({
+            'station_id': node.station_id, 'created_us': packet.created_us,
+            'deadline_us': deadline, 'completed_us': completed_us,
+            'outcome': outcome, 'retries': packet.retries,
+            'deadline_observed': deadline <= self.config.duration_us,
+            'on_time_success': outcome == 'success' and completed_us <= deadline,
+        })
 
     def _channel_resets(self, channel: int) -> None:
         for node in self.nodes:
@@ -471,6 +493,11 @@ class MACSimulator:
         # boundary; include completed transmissions at that boundary.
         self._end_transmissions(self.env.now)
         self.report.unfinished_high = sum(len(node.queue) for node in self.nodes if node.high)
+        for node in self.nodes:
+            if node.high:
+                for packet in node.queue:
+                    self._record_high(node, packet, 'unfinished', None)
+        assert len(self.report.high_packets) == self.report.high_generated
         assert self.report.high_generated == (self.report.high_success +
             self.report.high_dropped + self.report.unfinished_high)
         assert self.report.attempts == (self.report.high_success +

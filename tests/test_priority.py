@@ -59,8 +59,18 @@ class PriorityMACTests(unittest.TestCase):
         self.assertEqual(row['high_success_late'], 0)
         self.assertEqual(row['high_dropped'], 0)
         self.assertEqual(row['high_deadline_failure'], 0)
+        self.assertEqual(row['high_deadline_observed'], 1)
+        self.assertEqual(row['high_unfinished_overdue'], 1)
+        self.assertEqual(row['deadline_observed_failure_pct'], 100.0)
         for key in ('high_success_late_pct', 'high_drop_pct', 'deadline_failure_pct'):
             self.assertIsNone(row[key])
+
+    def test_deadline_cohort_excludes_recent_arrivals_even_if_resolved(self):
+        sim = self._outcome_scenario('EDCA', high_stations=2, deadline_us=1000.0)
+        row = sim.run().as_dict()
+        self.assertEqual(row['high_dropped'], 2)
+        self.assertEqual(row['high_deadline_observed'], 0)
+        self.assertIsNone(row['deadline_observed_failure_pct'])
 
     def test_metric_numerators_and_denominators(self):
         r = MACResult(MACConfig(), high_generated=10, high_success=4,

@@ -59,6 +59,7 @@
 | 丢帧率 `high_drop_pct` | 分子：重传超限丢弃的高优先级帧数 `high_dropped`；分母：`high_resolved = high_success + high_dropped`；乘 100%。截止前丢弃也计丢帧，但**不计入成功帧超时数** |
 | 综合截止失败率 `deadline_failure_pct` | 分子：`high_deadline_failure = high_success_late + high_dropped`；分母：`high_resolved`；乘 100%。表示已确定结果中未能按时成功交付的比例，包含截止前丢弃 |
 | 未完成帧数及占比 `high_unfinished` / `high_unfinished_pct` | 仿真终止时仍在队列/处理中、结果右删失的高优先级帧数；占比的分子为 `high_unfinished`，分母为全部生成帧数 `high_generated`，乘 100%。即使已经超过截止，也不混入上述已确定结果指标 |
+| 截止已观测失败率 `deadline_observed_failure_pct` | 分母 `high_deadline_observed`：入队时刻 + 截止时延 ≤ 仿真终点的全部高优先级帧；分子 `high_deadline_observed_failure`：其中未在截止时刻前（含恰好截止）成功 ACK 的帧，包括成功超时、丢弃、截止已到仍未完成。`high_unfinished_overdue` 单列其中未完成的帧。截止尚未到达的帧不进入此分子或分母 |
 | 低优先级总吞吐 | 成功发送的低优先级**有效载荷** bit 数 / 10 秒，Mbit/s |
 | 碰撞概率 | 碰撞的站点发送尝试数 / 所有站点发送尝试数；与“碰撞事件数 / 竞争轮次”不同 |
 | 等效行驶距离 | p99.9(ms) × (10/3.6 m/s) × (0.001 s/ms) × 100 cm/m = **0.27778 × p99.9(ms)** cm |
@@ -88,7 +89,12 @@
 python -m pip install -r requirements.txt
 python -m unittest discover -s tests -v
 python -m wifi_sim.experiments --out results --duration 10 --seeds 42 43 44 --bianchi-step 5
+python -m wifi_sim.acceptance results --write-report
 ```
+
+教师参数已于 2026-11-16 由用户确认与 README 一致。正式运行须在统计实现确定并提交后执行，元信息保存精确代码版本、完整逐次配置、依赖版本和 SHA-256；代码改变必须重跑，不沿用 `210058f` 数据。
+
+逐次饱和 DCF 记录保存于 `dcf_runs.csv`，高优先级逐帧状态保存于 `high_packets.csv`；验收报告从 CSV 自动重算生成。
 
 生成 `results/bianchi.csv`、`results/summary.csv`、`results/high_delays.csv`、`results/metadata.json` 和 4 张图的 PDF/PNG。`results` 属于生成产物，不应手工修改伪造数据。论文数据以 CSV 为准，图表只做可视化，不作为独立的数据来源。
 
