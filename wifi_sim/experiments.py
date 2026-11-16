@@ -91,7 +91,7 @@ def run_experiments(folder: Path, duration: float = 10.0,
                 "experiment_runs": len(summary), "dcf_validation_runs": len(seeds) * len(theory_rows),
                 "simpy_version": getattr(simpy, "__version__", "UNVERIFIED_TEST_SCHEDULER"),
                 "schema_version": 3, "source_commit": source_commit,
-                "source_files_sha256": {str(p).replace('\\', '/'): hashlib.sha256(p.read_bytes()).hexdigest()
+                "source_files_sha256": {str(p).replace('\\', '/'): hashlib.sha256(p.read_bytes().replace(b'\r\n', b'\n')).hexdigest()
                                         for p in sorted(Path('wifi_sim').glob('*.py'))},
                 "source_dirty": source_dirty,
                 "started_from": "python -m wifi_sim.experiments",

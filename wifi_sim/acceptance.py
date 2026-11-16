@@ -9,6 +9,7 @@ from collections import Counter
 from dataclasses import asdict
 from math import isclose
 from pathlib import Path
+from statistics import mean, stdev
 
 from .dcf import DCFConfig, percentile
 from .priority import MACConfig, MODES
@@ -24,10 +25,12 @@ def audit(folder: Path) -> str:
     assert m['schema_version'] == 3 and not m['source_dirty']
     assert m['duration_s'] >= 10 and len(set(m['seeds'])) >= 3
     assert len(m['seeds']) == len(set(m['seeds']))
+    required = {'summary.csv', 'bianchi.csv', 'dcf_runs.csv', 'high_packets.csv', 'high_delays.csv'}
+    assert required <= m['sha256'].keys()
     for name, digest in m['sha256'].items():
         assert hashlib.sha256((folder / name).read_bytes()).hexdigest() == digest, name
     for name, digest in m['source_files_sha256'].items():
-        assert hashlib.sha256(Path(name).read_bytes()).hexdigest() == digest, name
+        assert hashlib.sha256(Path(name).read_bytes().replace(b'\r\n', b'\n')).hexdigest() == digest, name
     expected = {(n, mode, seed) for n in (10, 20, 30)
                 for mode in MODES for seed in m['seeds']}
     summary = rows(folder / 'summary.csv')
@@ -92,12 +95,23 @@ def audit(folder: Path) -> str:
             value = percentile(successful_delays, q)
             assert isclose(float(r[col]), value) if value is not None else r[col] == ''
         assert float(r['duration_s']) == m['duration_s']
+        if successful_delays:
+            assert isclose(float(r['high_mean_ms']), mean(successful_delays) / 1000)
+            assert isclose(float(r['equivalent_distance_cm']), percentile(successful_delays, .999) / 3.6)
     dcf = rows(folder / 'dcf_runs.csv')
     assert len(dcf) == len(m['dcf_configs']) == m['dcf_validation_runs'] == 30
     assert {(int(json.loads(r['config'])['stations']), int(json.loads(r['config'])['seed']))
             for r in dcf} == {(n, s) for n in range(5, 51, 5) for s in m['seeds']}
     for c in m['dcf_configs']:
         assert c == asdict(DCFConfig(stations=c['stations'], seed=c['seed'], duration_s=m['duration_s']))
+    bianchi = rows(folder / 'bianchi.csv')
+    assert len(bianchi) == 10
+    assert {int(r['stations']) for r in bianchi} == set(range(5, 51, 5))
+    for r in bianchi:
+        values = [float(d['collision_probability']) for d in dcf
+                  if json.loads(d['config'])['stations'] == int(r['stations'])]
+        assert isclose(float(r['sim_mean']), mean(values))
+        assert isclose(float(r['sim_std']), stdev(values))
     for prefix in ('01_dcf_bianchi', '02_high_delay_ccdf', '03_high_p999_vs_n', '04_low_throughput_vs_n'):
         for ext in ('pdf', 'png'):
             assert (folder / f'{prefix}.{ext}').stat().st_size > 2000
