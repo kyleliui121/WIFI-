@@ -1,0 +1,19 @@
+{
+  "duration_s": 10.0,
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "A_class_N": [
+    10,
+    20,
+    30
+  ],
+  "high_stations": 2,
+  "external_busy_target": 0.3,
+  "model": "SimPy simplified independent-channel access, see docs/methodology.md",
+  "experiment_runs": 36,
+  "dcf_validation_runs": 30,
+  "simpy_version": "4.1.2"
+}
