@@ -120,7 +120,7 @@ class MACResult:
     high_generated: int = 0
     high_success: int = 0
     high_dropped: int = 0
-    high_deadline_miss: int = 0
+    high_success_late: int = 0
     low_success: int = 0
     low_dropped: int = 0
     collisions: int = 0
@@ -134,20 +134,30 @@ class MACResult:
 
     def as_dict(self) -> dict:
         c = self.config
-        observed = self.high_success + self.high_dropped
+        resolved = self.high_success + self.high_dropped
+        deadline_failures = self.high_success_late + self.high_dropped
         p999 = percentile(self.high_delays_us, 0.999)
         return {
             "mode": c.mode, "stations": c.stations, "seed": c.seed,
             "duration_s": c.duration_s, "high_generated": self.high_generated,
             "high_success": self.high_success, "high_dropped": self.high_dropped,
             "high_unfinished": self.unfinished_high,
+            "high_resolved": resolved,
+            "deadline_us": c.deadline_us,
+            "high_success_late": self.high_success_late,
+            "high_deadline_failure": deadline_failures,
             "high_mean_ms": (fmean(self.high_delays_us) / 1000
                              if self.high_delays_us else None),
             "high_p99_ms": percentile(self.high_delays_us, 0.99),
             "high_p999_ms": p999,
-            "deadline_miss_pct": (100 * self.high_deadline_miss / observed
-                                  if observed else None),
-            "high_drop_pct": (100 * self.high_dropped / observed if observed else None),
+            # Late ACKs are conditional on success; drops are a separate outcome.
+            "high_success_late_pct": (100 * self.high_success_late / self.high_success
+                                      if self.high_success else None),
+            "deadline_failure_pct": (100 * deadline_failures / resolved
+                                     if resolved else None),
+            "high_drop_pct": (100 * self.high_dropped / resolved if resolved else None),
+            "high_unfinished_pct": (100 * self.unfinished_high / self.high_generated
+                                    if self.high_generated else None),
             "low_throughput_mbps": self.low_bits / c.duration_s / 1_000_000,
             "collision_pct": (100 * self.collisions / self.attempts
                               if self.attempts else None),
@@ -271,7 +281,7 @@ class MACSimulator:
                         self.report.high_delays_us.append(delay)
                         self.report.high_success += 1
                         if delay > self.config.deadline_us:
-                            self.report.high_deadline_miss += 1
+                            self.report.high_success_late += 1
                     else:
                         self.report.low_success += 1
                         self.report.low_bits += self.config.low_frame_bytes * 8
@@ -288,7 +298,6 @@ class MACSimulator:
                         node.queue.popleft()
                         if node.high:
                             self.report.high_dropped += 1
-                            self.report.high_deadline_miss += 1
                         else:
                             self.report.low_dropped += 1
                             node.queue.append(Packet(now))

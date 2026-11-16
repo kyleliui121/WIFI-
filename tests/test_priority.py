@@ -1,11 +1,83 @@
 """Focused regression checks for the MAC approximation (SimPy required)."""
 import unittest
 
-from wifi_sim.priority import MACConfig, MACSimulator, MODES, Packet
+from wifi_sim.priority import MACConfig, MACResult, MACSimulator, MODES, Packet
 from wifi_sim.theory import collision_probability, attempt_probability
 
 
 class PriorityMACTests(unittest.TestCase):
+    def _outcome_scenario(self, mode, high_stations=1, deadline_us=1000.0):
+        sim = MACSimulator(MACConfig(stations=3, high_stations=high_stations,
+            mode=mode, duration_s=0.0005, retry_limit=0, deadline_us=deadline_us))
+        sim.external_events = []
+        sim.next_arrival = sim.config.duration_us
+        for node in sim.nodes:
+            node.queue.clear()
+            node.backoff = 0
+            node.ifs_remaining = 0.0
+            if node.high:
+                node.queue.append(Packet(0.0))
+        sim.report.high_generated = high_stations
+        return sim
+
+    def test_retry_drop_before_deadline_is_not_successful_delay_timeout(self):
+        for mode in MODES:
+            with self.subTest(mode=mode):
+                sim = self._outcome_scenario(mode, high_stations=2)
+                r = sim.run()
+                self.assertLess(sim.config.duration_us, sim.config.deadline_us)
+                self.assertEqual(r.high_success, 0)
+                self.assertEqual(r.high_dropped, 2)
+                self.assertEqual(r.high_success_late, 0)
+                self.assertEqual(r.high_delays_us, [])
+                row = r.as_dict()
+                self.assertIsNone(row['high_success_late_pct'])
+                self.assertEqual(row['high_drop_pct'], 100.0)
+                self.assertEqual(row['high_deadline_failure'], 2)
+                self.assertEqual(row['deadline_failure_pct'], 100.0)
+                self.assertEqual(row['high_unfinished'], 0)
+
+    def test_success_delay_deadline_boundary(self):
+        duration = MACConfig().tx_us([MACConfig().high_frame_bytes])
+        for mode in MODES:
+            for deadline, late in ((duration, 0), (duration - 1, 1)):
+                with self.subTest(mode=mode, deadline=deadline):
+                    r = self._outcome_scenario(mode, deadline_us=deadline).run()
+                    self.assertEqual(r.high_success, 1)
+                    self.assertEqual(r.high_success_late, late)
+                    self.assertEqual(r.high_dropped, 0)
+                    self.assertEqual(r.as_dict()['high_success_late_pct'], 100 * late)
+                    self.assertEqual(r.as_dict()['deadline_failure_pct'], 100 * late)
+
+    def test_unfinished_frames_are_separate_from_resolved_outcomes(self):
+        sim = self._outcome_scenario('EDCA', deadline_us=10.0)
+        sim.external_events = [(0.0, True), (sim.config.duration_us, False)]
+        row = sim.run().as_dict()
+        self.assertEqual(row['high_unfinished'], 1)
+        self.assertEqual(row['high_unfinished_pct'], 100.0)
+        self.assertEqual(row['high_resolved'], 0)
+        self.assertEqual(row['high_success_late'], 0)
+        self.assertEqual(row['high_dropped'], 0)
+        self.assertEqual(row['high_deadline_failure'], 0)
+        for key in ('high_success_late_pct', 'high_drop_pct', 'deadline_failure_pct'):
+            self.assertIsNone(row[key])
+
+    def test_metric_numerators_and_denominators(self):
+        r = MACResult(MACConfig(), high_generated=10, high_success=4,
+                      high_success_late=1, high_dropped=2, unfinished_high=4)
+        row = r.as_dict()
+        self.assertEqual(row['high_resolved'], 6)
+        self.assertEqual(row['high_success_late_pct'], 25.0)
+        self.assertAlmostEqual(row['high_drop_pct'], 100 * 2 / 6)
+        self.assertEqual(row['high_deadline_failure'], 3)
+        self.assertEqual(row['deadline_failure_pct'], 50.0)
+        self.assertEqual(row['high_unfinished_pct'], 40.0)
+        self.assertNotIn('deadline_miss_pct', row)
+        empty = MACResult(MACConfig()).as_dict()
+        for key in ('high_success_late_pct', 'high_drop_pct',
+                    'deadline_failure_pct', 'high_unfinished_pct'):
+            self.assertIsNone(empty[key])
+
     def _guard_scenario(self, mode, short_ready_us):
         sim = MACSimulator(MACConfig(stations=3, high_stations=1,
                                      mode=mode, duration_s=0.001))

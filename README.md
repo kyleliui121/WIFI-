@@ -1,6 +1,8 @@
 # 面向车载低时延业务的 Wi-Fi 优先信道接入仿真
 
-**通信网课程设计（A 班）**：比较 DCF、EDCA、EDCA+P-EDCA 和 EDCA+P-EDCA+NPCA 四类简化信道接入方案，评估高优先级远程泊车控制的尾时延、超时率及低优先级吞吐量。
+**通信网课程设计（A 班）**：比较 DCF、EDCA、EDCA+P-EDCA 和 EDCA+P-EDCA+NPCA 四类简化信道接入方案，评估高优先级远程泊车控制的尾时延、成功帧超时率、丢帧率、综合截止失败率、未完成占比及低优先级吞吐量。
+
+`summary.csv` 分别输出 `high_success_late`、`high_dropped`、`high_unfinished` 及对应比例。旧 `deadline_miss_pct` 已更名为 `deadline_failure_pct`，保留“成功超时或丢弃”的综合含义；各指标分子、分母和空值规则见 [统计口径](docs/methodology.md#5-统计口径务必保持一致)。
 
 - [题目四：完整原文整理](docs/题目四-原文整理.md)（原题不简化）
 - [建模假设、参数、统计口径与局限性](docs/methodology.md)
