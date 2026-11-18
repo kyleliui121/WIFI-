@@ -3,6 +3,8 @@ name: Validate and reproduce Wi-Fi course simulation
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -24,6 +26,22 @@ jobs:
         run: python -m wifi_sim.experiments --out results --duration 10 --seeds 42 43 44 --bianchi-step 5
       - name: Audit final configuration and frame accounting
         run: python -m wifi_sim.acceptance results --write-report
+      - name: Validate both extensions with a matched short baseline
+        run: |
+          python -m wifi_sim.extensions --out results/extensions-smoke --duration 1 --seeds 42 --rates 0.05
+          python -m tools.analyze_extensions --results results/extensions-smoke
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          folder = Path("results/extensions-smoke")
+          info = json.loads((folder / "ext_metadata.json").read_text(encoding="utf-8"))
+          assert [info[f"runs_{name}"] for name in ("baseline", "frame_error", "hidden")] == [12, 12, 12]
+          for no in range(7, 11):
+              for suffix in ("pdf", "png"):
+                  paths = list(folder.glob(f"{no:02}_ext_*.{suffix}"))
+                  assert len(paths) == 1 and paths[0].stat().st_size > 2000
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:

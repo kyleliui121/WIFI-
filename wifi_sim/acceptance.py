@@ -5,6 +5,8 @@ import argparse
 import csv
 import hashlib
 import json
+import re
+import subprocess
 from collections import Counter
 from dataclasses import asdict
 from math import isclose
@@ -14,10 +16,30 @@ from statistics import mean, stdev
 from .dcf import DCFConfig, percentile
 from .priority import MACConfig, MODES
 
+ROOT = Path(__file__).resolve().parents[1]
+
 
 def rows(path):
     with path.open(encoding='utf-8', newline='') as f:
         return list(csv.DictReader(f))
+
+
+def check_source_hashes(metadata):
+    commit = metadata['source_commit']
+    assert re.fullmatch(r'[0-9a-f]{40}', commit), 'invalid source commit'
+    for name, digest in metadata['source_files_sha256'].items():
+        path = Path(name)
+        assert path.parent == Path('wifi_sim') and path.suffix == '.py', name
+        current = ROOT / path
+        if current.is_file():
+            payload = current.read_bytes().replace(b'\r\n', b'\n')
+            if hashlib.sha256(payload).hexdigest() == digest:
+                continue
+        # A previous official run keeps its own code provenance after updates.
+        source = subprocess.run(['git', 'show', f'{commit}:{name}'], cwd=ROOT,
+                                capture_output=True, check=False)
+        assert source.returncode == 0, f'cannot read {name} at archived commit {commit}'
+        assert hashlib.sha256(source.stdout.replace(b'\r\n', b'\n')).hexdigest() == digest, name
 
 
 def audit(folder: Path) -> str:
@@ -29,8 +51,7 @@ def audit(folder: Path) -> str:
     assert required <= m['sha256'].keys()
     for name, digest in m['sha256'].items():
         assert hashlib.sha256((folder / name).read_bytes()).hexdigest() == digest, name
-    for name, digest in m['source_files_sha256'].items():
-        assert hashlib.sha256(Path(name).read_bytes().replace(b'\r\n', b'\n')).hexdigest() == digest, name
+    check_source_hashes(m)
     expected = {(n, mode, seed) for n in (10, 20, 30)
                 for mode in MODES for seed in m['seeds']}
     summary = rows(folder / 'summary.csv')
@@ -39,8 +60,9 @@ def audit(folder: Path) -> str:
     assert len(m['mac_configs']) == len(expected) == m['experiment_runs']
     assert {key(c) for c in m['mac_configs']} == expected
     for c in m['mac_configs']:
-        assert c == asdict(MACConfig(stations=c['stations'], mode=c['mode'],
-                                   seed=c['seed'], duration_s=m['duration_s']))
+        config = {'frame_error_rate': 0.0, 'hidden_terminals': False, **c}
+        assert config == asdict(MACConfig(stations=c['stations'], mode=c['mode'],
+                                        seed=c['seed'], duration_s=m['duration_s']))
     packets = rows(folder / 'high_packets.csv')
     delays = rows(folder / 'high_delays.csv')
     assert set(map(key, packets)) <= expected and set(map(key, delays)) <= expected

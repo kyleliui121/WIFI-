@@ -7,6 +7,7 @@
 - [题目四：完整原文整理](docs/题目四-原文整理.md)（原题不简化）
 - [建模假设、参数、统计口径与局限性](docs/methodology.md)
 - [第 28 条的时延改善与吞吐代价](docs/分析-28.md) · [交接说明](docs/交接说明.md) · [接手指南](docs/接手指南-ONBOARDING.md)
+- [选做拓展 1、2 的模型与结果](docs/拓展-12-说明.md) · [拓展接入记录](docs/拓展-12-接入记录.md)
 - [官方实验 CSV 摘要](data/official_summary.csv) · [Bianchi 对照](data/official_bianchi.csv) · [实验元信息](data/official_metadata.json)
 - [新版完整运行归档（逐帧/逐次 CSV、图表、配置与报告）](data/official_run.zip) · [验收报告](data/official_acceptance.md) · [运行入口和文件校验值](data/official_manifest.json)
 - [四类正式图表（PNG / PDF）](data/official_figures) · [逐次饱和 DCF 结果](data/official_dcf_runs.csv)
@@ -20,13 +21,14 @@ wifi_sim/
   theory.py       Bianchi 经典模型 / 有限重传校正
   priority.py     DCF、EDCA、P-EDCA、NPCA 共用 SimPy 事件仿真
   experiments.py  A 班仿真矩阵、随机种子、CSV 输出
+  extensions.py   帧错误率与隐藏终端的配对实验
   plotting.py     四种必交图表生成（PNG / PDF）
   __main__.py     单次 DCF 运行入口
 tests/            关键退避与事件行为回归测试
 tools/            NPCA 专项验证、时延与吞吐分析、独立复核脚本
 ```
 
-**实现范围**：全部必做模块（DCF、Bianchi 校验、EDCA、P-EDCA、NPCA、三档 N × 四方案 × 三种子 × 10 秒、指标与四类图表）。选做的隐藏终端、AC_VI/BK、误码与 ns-3 交叉校验暂不包含。
+**实现范围**涵盖全部必做模块及选做第 1、2 项。AC_VI/BK 与 ns-3 交叉校验属于后续拓展。
 
 ## 运行环境
 
@@ -49,6 +51,7 @@ python -m unittest discover -s tests -v
 | `run_experiments.bat` | 第 27 条的 36 次对比实验、Bianchi 校验和图 01–04 | `results/matrix/` |
 | `run_npca_demo.bat` | 第 26 条的 NPCA 专项检查、切换时延扫描和方案对比 | `results/npca/` |
 | `run_analysis.bat` | 读取第 27 条的结果，计算改善幅度与吞吐变化并生成图 05–06 | `results/analysis28/` |
+| `run_extensions.bat` | 独立帧错误、隐藏终端及配对基线，生成图 07–10 与汇总表 | `results/extensions/` |
 
 `wifi_sim/` 中的模块使用包内相对导入，请从项目根目录用 `python -m wifi_sim.experiments` 运行实验。
 
@@ -80,6 +83,15 @@ python -m wifi_sim.acceptance results --write-report
 
 为了更密集地验证 Bianchi，可以用 `--bianchi-step 1` 扫描 N=5 到 50 每一个整数。测试时可临时设置 `--duration 0.1`，但这**不满足课程正式实验至少 10 秒**的要求，不能将短时实验当作正式结果。
 
+### 选做拓展 1、2
+
+```bash
+python -m wifi_sim.extensions --out results/extensions --duration 10 --seeds 42 43 44
+python -m tools.analyze_extensions --results results/extensions
+```
+
+每次运行都会生成匹配时长和种子的对照数据。帧错误率默认为 1%、2.5%、5%，可通过 `--rates` 传入 0 至 1 之间的概率。 [本次完整拓展结果](data/extensions/12/ext_tables.md)
+
 ## A 班指定参数
 
 - N=10、20、30，两个高优先级站点；高优先级 100 B/10 ms，截止 10 ms；低优先级 1500 B 饱和。
@@ -96,6 +108,6 @@ python -m wifi_sim.acceptance results --write-report
 
 正式运行使用代码 [`da495c023c55abd22ffd8b3adac454e359170aa8`](https://github.com/kyleliui121/WIFI-/commit/da495c023c55abd22ffd8b3adac454e359170aa8)，在干净代码工作区重新运行全部实验，未沿用 `210058f` 的结果。种子 42、43、44，每次 10 秒；36 次 MAC 对比和 30 次饱和 DCF 校验。20 项单元测试通过；逐帧重算新指标、帧数守恒、完整配置覆盖、分位数与文件哈希校验通过。数值见自动生成的正式验收报告，图表全部来自同一次运行的 CSV。
 
-完整结果包解压到 `results/official` 后，可运行 `python -m wifi_sim.acceptance results/official` 复核。元信息所记录的是最终仿真代码提交；后续归档提交只更新数据、README 和归档格式设置，仿真代码哈希保持一致。若修改配置或统计代码，须重新运行完整实验、重新验收并更新归档，不能直接修改 CSV。
+完整结果包解压到 `results/official` 后，可运行 `python -m wifi_sim.acceptance results/official` 复核。验收会核对产物，并按归档记录的代码提交核对源文件哈希。复核早期归档需要本地 Git 历史可访问该提交。更新正式数据时应重新运行完整实验并验收。
 
 本次正式运行是本地 Python 3.12.10 / SimPy 4.1.2，未声称来自旧 Actions 运行。持续集成使用相同完整实验命令和验收程序。**结果基于课程的理想化 P-EDCA/NPCA 模型，不能视为 IEEE 802.11bn 设备测量。**

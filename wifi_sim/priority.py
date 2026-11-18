@@ -45,6 +45,8 @@ class MACConfig:
     urgent_aifsn: int = 1
     urgent_cw_min: int = 1
     urgent_cw_max: int = 3
+    frame_error_rate: float = 0.0
+    hidden_terminals: bool = False
 
     def __post_init__(self) -> None:
         if self.mode not in MODES:
@@ -67,6 +69,10 @@ class MACConfig:
             raise ValueError("invalid urgent contention window")
         if self.urgent_queue_us <= 0:
             raise ValueError("urgent threshold must be positive")
+        if not 0 <= self.frame_error_rate < 1:
+            raise ValueError("frame error rate must lie in [0, 1)")
+        if self.hidden_terminals and self.stations < 4:
+            raise ValueError("hidden-terminal scenario requires at least four stations")
 
     @property
     def duration_us(self) -> float:
@@ -100,6 +106,7 @@ class Node:
     switch_target: int | None = None
     pending_target: int | None = None
     transmitting: bool = False
+    group: int = 0
 
     @property
     def head(self) -> Packet | None:
@@ -111,6 +118,7 @@ class Transmission:
     end_us: float
     contenders: list[Node]
     channel: int
+    hidden_collision: bool = False
 
 
 @dataclass
@@ -132,6 +140,10 @@ class MACResult:
     switch_events: int = 0
     unfinished_high: int = 0
     high_packets: list[dict] = field(default_factory=list)
+    frame_errors: int = 0
+    hidden_collision_events: int = 0
+    high_dropped_by_error: int = 0
+    high_dropped_by_collision: int = 0
 
     def as_dict(self) -> dict:
         c = self.config
@@ -192,10 +204,13 @@ class MACSimulator:
     def __init__(self, config: MACConfig):
         self.config = config
         self.env = simpy.Environment()
-        self.nodes = [Node(i, i < config.high_stations) for i in range(config.stations)]
+        self.groups = (0, 1) if config.hidden_terminals else (0,)
+        self.nodes = [Node(i, i < config.high_stations, group=i % len(self.groups))
+                      for i in range(config.stations)]
         self.rng = [random.Random(config.seed + i * 9973) for i in range(config.stations)]
+        self.error_rng = random.Random(config.seed + 2_000_000)
         self.report = MACResult(config)
-        self.busy: dict[int, Transmission | None] = {0: None, 1: None}
+        self.busy: dict[int, dict[int, Transmission]] = {0: {}, 1: {}}
         self.external_busy = False
         self.external_events = self._external_events()
         self.external_index = 0
@@ -273,53 +288,64 @@ class MACSimulator:
                 self._start_switch(node, desired, now)
 
     def _end_transmissions(self, now: float) -> None:
-        for channel, tx in tuple(self.busy.items()):
-            if tx is None or tx.end_us > now + EPS:
-                continue
-            self.busy[channel] = None
-            if len(tx.contenders) > 1:
-                self.report.collision_events += 1
-            for node in tx.contenders:
-                node.transmitting = False
-                packet = node.head
-                assert packet is not None
-                if len(tx.contenders) == 1:
+        for channel, active in self.busy.items():
+            for group, tx in tuple(active.items()):
+                if tx.end_us > now + EPS:
+                    continue
+                del active[group]
+                self._complete_transmission(tx, now)
+                self._channel_resets(channel, group)
+
+    def _complete_transmission(self, tx: Transmission, now: float) -> None:
+        simultaneous = len(tx.contenders) > 1
+        collided = simultaneous or tx.hidden_collision
+        if simultaneous and not tx.hidden_collision:
+            self.report.collision_events += 1
+        rate = self.config.frame_error_rate
+        corrupted = not collided and rate > 0 and self.error_rng.random() < rate
+        for node in tx.contenders:
+            node.transmitting = False
+            packet = node.head
+            assert packet is not None
+            if collided or corrupted:
+                self.report.collisions += collided
+                self.report.frame_errors += corrupted
+                packet.retries += 1
+                if packet.retries > self.config.retry_limit:
                     node.queue.popleft()
                     if node.high:
-                        self._record_high(node, packet, 'success', now)
-                        delay = now - packet.created_us
-                        self.report.high_delays_us.append(delay)
-                        self.report.high_success += 1
-                        if delay > self.config.deadline_us:
-                            self.report.high_success_late += 1
+                        self._record_high(node, packet, 'dropped', now)
+                        self.report.high_dropped += 1
+                        self.report.high_dropped_by_error += corrupted
+                        self.report.high_dropped_by_collision += collided
                     else:
-                        self.report.low_success += 1
-                        self.report.low_bits += self.config.low_frame_bytes * 8
-                    if channel == 1:
-                        self.report.secondary_success += 1
-                    if not node.high:
+                        self.report.low_dropped += 1
                         node.queue.append(Packet(now))
-                    if node.head:
-                        self._reset_backoff(node)
+                if node.head:
+                    self._refresh_urgent_one(node, now)
+                    self._reset_backoff(node)
+            else:
+                node.queue.popleft()
+                if node.high:
+                    self._record_high(node, packet, 'success', now)
+                    delay = now - packet.created_us
+                    self.report.high_delays_us.append(delay)
+                    self.report.high_success += 1
+                    if delay > self.config.deadline_us:
+                        self.report.high_success_late += 1
                 else:
-                    self.report.collisions += 1
-                    packet.retries += 1
-                    if packet.retries > self.config.retry_limit:
-                        node.queue.popleft()
-                        if node.high:
-                            self._record_high(node, packet, 'dropped', now)
-                            self.report.high_dropped += 1
-                        else:
-                            self.report.low_dropped += 1
-                            node.queue.append(Packet(now))
-                    if node.head:
-                        self._refresh_urgent_one(node, now)
-                        self._reset_backoff(node)
-                if node.pending_target is not None:
-                    target = node.pending_target
-                    node.pending_target = None
-                    self._start_switch(node, target, now)
-            self._channel_resets(channel)
+                    self.report.low_success += 1
+                    self.report.low_bits += self.config.low_frame_bytes * 8
+                if tx.channel == 1:
+                    self.report.secondary_success += 1
+                if not node.high:
+                    node.queue.append(Packet(now))
+                if node.head:
+                    self._reset_backoff(node)
+            if node.pending_target is not None:
+                target = node.pending_target
+                node.pending_target = None
+                self._start_switch(node, target, now)
 
     def _record_high(self, node: Node, packet: Packet, outcome: str,
                      completed_us: float | None) -> None:
@@ -332,9 +358,10 @@ class MACSimulator:
             'on_time_success': outcome == 'success' and completed_us <= deadline,
         })
 
-    def _channel_resets(self, channel: int) -> None:
+    def _channel_resets(self, channel: int, group: int | None = None) -> None:
         for node in self.nodes:
-            if node.channel == channel and node.head and not node.transmitting:
+            if (node.channel == channel and node.head and not node.transmitting
+                    and (group is None or node.group == group)):
                 self._reset_ifs(node)
 
     def _refresh_urgent_one(self, node: Node, now: float) -> None:
@@ -381,17 +408,14 @@ class MACSimulator:
                 node.switching_until = None
                 self._reset_ifs(node)
 
-    def _is_idle(self, channel: int) -> bool:
-        if self.busy[channel] is not None:
-            return False
-        if channel == 0 and self.external_busy:
-            return False
-        return True
+    def _is_idle(self, channel: int, group: int) -> bool:
+        return (group not in self.busy[channel]
+                and not (channel == 0 and self.external_busy))
 
     def _eligible(self, node: Node) -> bool:
         return bool(node.head and not node.transmitting
                     and node.switching_until is None
-                    and self._is_idle(node.channel))
+                    and self._is_idle(node.channel, node.group))
 
     def _time_until_ready(self, node: Node) -> float:
         return max(0.0, node.ifs_remaining) + max(0.0,
@@ -401,33 +425,45 @@ class MACSimulator:
         for channel in (0, 1):
             if channel == 1 and self.config.mode != "NPCA":
                 continue
-            if not self._is_idle(channel):
-                continue
-            ready = [n for n in self.nodes if n.channel == channel
-                     and self._eligible(n) and self._time_until_ready(n) <= EPS]
-            # Admission is per frame: a deferred long frame must not block
-            # shorter contenders in the remaining primary idle interval.
-            if channel == 0:
-                ready = [n for n in ready if now + self.config.tx_us([
-                    self.config.high_frame_bytes if n.high
-                    else self.config.low_frame_bytes]) <= self._next_external() + EPS]
-            if not ready:
-                continue
-            sizes = [self.config.high_frame_bytes if node.high
-                     else self.config.low_frame_bytes for node in ready]
-            duration = self.config.tx_us(sizes)
-            if now + duration > self.config.duration_us + EPS:
-                continue
-            self.report.attempts += len(ready)
-            for node in ready:
-                node.transmitting = True
-            self.busy[channel] = Transmission(now + duration, ready, channel)
-            self._channel_resets(channel)
+            for group in self.groups:
+                if self._is_idle(channel, group):
+                    self._start_group_transmission(channel, group, now)
+
+    def _start_group_transmission(self, channel: int, group: int, now: float) -> None:
+        ready = [n for n in self.nodes if n.channel == channel and n.group == group
+                 and self._eligible(n) and self._time_until_ready(n) <= EPS]
+        # Check each frame against the next external busy period before
+        # forming a collision candidate. A long frame cannot block a short one.
+        if channel == 0:
+            boundary = self._next_external() + EPS
+            ready = [n for n in ready if now + self.config.tx_us([
+                self.config.high_frame_bytes if n.high
+                else self.config.low_frame_bytes]) <= boundary]
+        if not ready:
+            return
+        sizes = [self.config.high_frame_bytes if node.high
+                 else self.config.low_frame_bytes for node in ready]
+        end = now + self.config.tx_us(sizes)
+        if end > self.config.duration_us + EPS:
+            return
+        self.report.attempts += len(ready)
+        for node in ready:
+            node.transmitting = True
+        active = self.busy[channel]
+        tx = active[group] = Transmission(end, ready, channel)
+        other = active.get(1 - group)
+        if other is not None:
+            # In this model both groups retry after the longer overlap ends.
+            tx.end_us = other.end_us = max(end, other.end_us)
+            tx.hidden_collision = other.hidden_collision = True
+            self.report.collision_events += 1
+            self.report.hidden_collision_events += 1
+        self._channel_resets(channel, group)
 
     def _next_event(self, now: float) -> float:
         future = [self.config.duration_us, self._next_external(),
                   self.next_arrival]
-        future.extend(tx.end_us for tx in self.busy.values() if tx is not None)
+        future.extend(tx.end_us for active in self.busy.values() for tx in active.values())
         future.extend(n.switching_until for n in self.nodes
                       if n.switching_until is not None)
         if self.config.mode in ("P-EDCA", "NPCA"):
@@ -501,5 +537,7 @@ class MACSimulator:
         assert self.report.high_generated == (self.report.high_success +
             self.report.high_dropped + self.report.unfinished_high)
         assert self.report.attempts == (self.report.high_success +
-            self.report.low_success + self.report.collisions)
+            self.report.low_success + self.report.collisions + self.report.frame_errors)
+        assert self.report.high_dropped == (self.report.high_dropped_by_error
+                                            + self.report.high_dropped_by_collision)
         return self.report

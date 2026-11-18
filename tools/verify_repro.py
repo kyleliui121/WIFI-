@@ -1,8 +1,10 @@
-"""Re-run the four modes at N=10, seed=42 against the official summary.
+"""Re-run the baseline against the official summary.
 
 Usage:  python tools/verify_repro.py
+        python tools/verify_repro.py --all
 Needs only simpy (no scipy / matplotlib).
 """
+import argparse
 import csv
 import sys
 from math import isclose
@@ -20,14 +22,20 @@ KEYS = ("high_mean_ms", "high_p99_ms", "high_p999_ms", "high_success_late_pct",
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--all", action="store_true", help="check all 36 official cases")
+    args = parser.parse_args()
     with (ROOT / "data" / "official_summary.csv").open(encoding="utf-8", newline="") as source:
-        official = {row["mode"]: row for row in csv.DictReader(source)
-                    if int(row["stations"]) == 10 and int(row["seed"]) == 42}
+        official = {(int(row["stations"]), row["mode"], int(row["seed"])): row
+                    for row in csv.DictReader(source)}
 
+    stations = (10, 20, 30) if args.all else (10,)
+    seeds = (42, 43, 44) if args.all else (42,)
     ok = True
-    for mode in MODES:
-        ref = official[mode]
-        config = MACConfig(stations=10, mode=mode, seed=42, duration_s=float(ref["duration_s"]))
+    cases = [(n, mode, seed) for n in stations for mode in MODES for seed in seeds]
+    for n, mode, seed in cases:
+        ref = official[n, mode, seed]
+        config = MACConfig(stations=n, mode=mode, seed=seed, duration_s=float(ref["duration_s"]))
         got = MACSimulator(config).run().as_dict()
         diffs = []
         for key in KEYS:
@@ -40,7 +48,8 @@ def main() -> int:
             if not match:
                 diffs.append(f"{key}: got {actual} vs csv {expected}")
         ok &= not diffs
-        print(f"{mode:7} " + ("MATCH" if not diffs else "DIFF -> " + ", ".join(diffs)))
+        print(f"N={n} {mode:7} seed={seed} "
+              + ("MATCH" if not diffs else "DIFF -> " + ", ".join(diffs)))
 
     print("VERDICT:", "reproducible" if ok else "MISMATCH")
     return 0 if ok else 1
