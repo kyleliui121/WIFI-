@@ -1,0 +1,28 @@
+{
+  "duration_s": 10.0,
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "A_class_N": [
+    10,
+    20,
+    30
+  ],
+  "frame_error_rates": [
+    0.01,
+    0.025,
+    0.05
+  ],
+  "hidden_group_rule": "station_id % 2",
+  "runs_baseline": 36,
+  "runs_frame_error": 108,
+  "runs_hidden": 36,
+  "simpy_version": "4.1.2",
+  "source_sha256": {
+    "priority.py": "2c882cb2091e9c5b865b90f70a6758f04f3221f229b9c579e177bee35d230d99",
+    "extensions.py": "253a3b7bea06d58ea76b2abd4363de4037b70bad97212baf14f952a1d4cd1b9c",
+    "dcf.py": "aaeb176372ba8736f6b5bbfacfb8b4212d17202ccd2808f31a74bf90a4df60b0"
+  }
+}
