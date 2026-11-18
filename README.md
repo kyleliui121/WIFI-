@@ -6,6 +6,7 @@
 
 - [题目四：完整原文整理](docs/题目四-原文整理.md)（原题不简化）
 - [建模假设、参数、统计口径与局限性](docs/methodology.md)
+- [第 28 条的时延改善与吞吐代价](docs/分析-28.md) · [交接说明](docs/交接说明.md) · [接手指南](docs/接手指南-ONBOARDING.md)
 - [官方实验 CSV 摘要](data/official_summary.csv) · [Bianchi 对照](data/official_bianchi.csv) · [实验元信息](data/official_metadata.json)
 - [新版完整运行归档（逐帧/逐次 CSV、图表、配置与报告）](data/official_run.zip) · [验收报告](data/official_acceptance.md) · [运行入口和文件校验值](data/official_manifest.json)
 - [四类正式图表（PNG / PDF）](data/official_figures) · [逐次饱和 DCF 结果](data/official_dcf_runs.csv)
@@ -22,6 +23,7 @@ wifi_sim/
   plotting.py     四种必交图表生成（PNG / PDF）
   __main__.py     单次 DCF 运行入口
 tests/            关键退避与事件行为回归测试
+tools/            NPCA 专项验证、时延与吞吐分析、独立复核脚本
 ```
 
 **实现范围**：全部必做模块（DCF、Bianchi 校验、EDCA、P-EDCA、NPCA、三档 N × 四方案 × 三种子 × 10 秒、指标与四类图表）。选做的隐藏终端、AC_VI/BK、误码与 ns-3 交叉校验暂不包含。
@@ -37,6 +39,18 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 python -m unittest discover -s tests -v
 ```
+
+### Windows 一键运行
+
+安装依赖后，可在项目根目录双击以下脚本，或在 VS Code 的「运行和调试」里选择对应的 F5 配置。
+
+| 文件 | 内容 | 输出 |
+|---|---|---|
+| `run_experiments.bat` | 第 27 条的 36 次对比实验、Bianchi 校验和图 01–04 | `results/matrix/` |
+| `run_npca_demo.bat` | 第 26 条的 NPCA 专项检查、切换时延扫描和方案对比 | `results/npca/` |
+| `run_analysis.bat` | 读取第 27 条的结果，计算改善幅度与吞吐变化并生成图 05–06 | `results/analysis28/` |
+
+`wifi_sim/` 中的模块使用包内相对导入，请从项目根目录用 `python -m wifi_sim.experiments` 运行实验。
 
 ### 单次 DCF 快速检查
 
@@ -72,7 +86,7 @@ python -m wifi_sim.acceptance results --write-report
 - 主信道邻网外部忙期平均 2 ms、长期目标外部占用率 30%。
 - AIFSN/CW 高优先级 = 2/(3,7)，低优先级 = 3/(15,1023)，重传上限 7。
 - P-EDCA 自定义紧急门限：5ms 或重传次数>=2，使用 AIFSN=1、CW=(1,3)。
-- NPCA 仅允许高优先级在主信道受邻网占用时切换到独立辅助信道，切换时延 100 μs。
+- NPCA 仅允许高优先级在主信道受邻网占用时切换到独立辅助信道，默认切换时延 100 μs，见[取值说明与敏感性扫描](docs/methodology.md#41-切换时延取值)。
 
 本项目使用**明确标注的课程简化假设**，不是 IEEE 802.11bn 的标准级 PHY/MAC 仿真或真实系统预测。尤其是 NPCA 外部占用日历采用离线生成并保证帧不跨越外部忙起点，会高估外部占用可预知性，分析结果时请特别注意。
 
