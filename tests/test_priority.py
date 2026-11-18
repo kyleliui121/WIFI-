@@ -1,14 +1,15 @@
 """Focused regression checks for the MAC approximation (SimPy required)."""
 import unittest
+from unittest.mock import patch
 
 from wifi_sim.priority import MACConfig, MACResult, MACSimulator, MODES, Packet
 from wifi_sim.theory import collision_probability, attempt_probability
 
 
 class PriorityMACTests(unittest.TestCase):
-    def _outcome_scenario(self, mode, high_stations=1, deadline_us=1000.0):
-        sim = MACSimulator(MACConfig(stations=3, high_stations=high_stations,
-            mode=mode, duration_s=0.0005, retry_limit=0, deadline_us=deadline_us))
+    def _outcome_scenario(self, mode, high_stations=1, deadline_us=1000.0, **options):
+        sim = MACSimulator(MACConfig(stations=4, high_stations=high_stations,
+            mode=mode, duration_s=0.0005, retry_limit=0, deadline_us=deadline_us, **options))
         sim.external_events = []
         sim.next_arrival = sim.config.duration_us
         for node in sim.nodes:
@@ -88,9 +89,9 @@ class PriorityMACTests(unittest.TestCase):
                     'deadline_failure_pct', 'high_unfinished_pct'):
             self.assertIsNone(empty[key])
 
-    def _guard_scenario(self, mode, short_ready_us):
-        sim = MACSimulator(MACConfig(stations=3, high_stations=1,
-                                     mode=mode, duration_s=0.001))
+    def _guard_scenario(self, mode, short_ready_us, hidden_terminals=False):
+        sim = MACSimulator(MACConfig(stations=4, high_stations=1, mode=mode,
+                           duration_s=0.001, hidden_terminals=hidden_terminals))
         sim.external_events = [(200.0, True), (400.0, False)]
         sim.next_arrival = sim.config.duration_us
         for node in sim.nodes:
@@ -109,13 +110,13 @@ class PriorityMACTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 sim, short, long = self._guard_scenario(mode, 50.0)
                 sim._start_ready_transmissions(0.0)
-                self.assertIsNone(sim.busy[0])
+                self.assertFalse(sim.busy[0])
                 self.assertEqual(sim._next_event(0.0), 50.0)
                 sim._advance(50.0)
                 sim._start_ready_transmissions(50.0)
-                self.assertEqual(sim.busy[0].contenders, [short])
+                self.assertEqual(sim.busy[0][0].contenders, [short])
                 self.assertFalse(long.transmitting)
-                self.assertLessEqual(sim.busy[0].end_us, 200.0)
+                self.assertLessEqual(sim.busy[0][0].end_us, 200.0)
 
     def test_simultaneous_short_frame_and_exact_fit_are_admitted(self):
         for mode in MODES:
@@ -124,10 +125,59 @@ class PriorityMACTests(unittest.TestCase):
                 boundary = sim.config.tx_us([sim.config.high_frame_bytes])
                 sim.external_events[0] = (boundary, True)
                 sim._start_ready_transmissions(0.0)
-                self.assertEqual(sim.busy[0].contenders, [short])
-                self.assertEqual(sim.busy[0].end_us, boundary)
+                self.assertEqual(sim.busy[0][0].contenders, [short])
+                self.assertEqual(sim.busy[0][0].end_us, boundary)
                 self.assertFalse(long.transmitting)
                 self.assertEqual(sim.report.attempts, 1)
+
+    def test_hidden_terminals_keep_later_short_frame_eligible(self):
+        sim, short, long = self._guard_scenario("EDCA", 50.0, hidden_terminals=True)
+        sim._start_ready_transmissions(0.0)
+        self.assertFalse(sim.busy[0])
+        self.assertEqual(sim._next_event(0.0), 50.0)
+        sim._advance(50.0)
+        sim._start_ready_transmissions(50.0)
+        self.assertEqual(sim.busy[0][short.group].contenders, [short])
+        self.assertFalse(long.transmitting)
+
+    def test_hidden_groups_continue_countdown_and_both_fail_on_overlap(self):
+        sim = self._outcome_scenario("EDCA", high_stations=2, deadline_us=200.0,
+                                     hidden_terminals=True, frame_error_rate=0.05)
+        sim.nodes[1].ifs_remaining = 30.0
+        with patch.object(sim.error_rng, "random", return_value=0.0) as draw:
+            report = sim.run()
+        draw.assert_not_called()
+        self.assertEqual(report.hidden_collision_events, 1)
+        self.assertEqual(report.collision_events, 1)
+        self.assertEqual(report.collisions, 2)
+        self.assertEqual(report.high_dropped_by_collision, 2)
+        self.assertEqual(report.frame_errors, 0)
+        self.assertEqual(len({packet["completed_us"] for packet in report.high_packets}), 1)
+        self.assertEqual(report.as_dict()["deadline_observed_failure_pct"], 100.0)
+
+    def test_corruption_drop_is_recorded_without_counting_collision_or_late_success(self):
+        sim = self._outcome_scenario("EDCA", deadline_us=200.0, frame_error_rate=0.05)
+        with patch.object(sim.error_rng, "random", return_value=0.0) as draw:
+            report = sim.run()
+        draw.assert_called_once()
+        self.assertEqual(report.frame_errors, 1)
+        self.assertEqual(report.collisions, 0)
+        self.assertEqual(report.high_dropped_by_error, 1)
+        self.assertEqual(report.high_success_late, 0)
+        self.assertEqual(report.high_packets[0]["outcome"], "dropped")
+        self.assertEqual(report.as_dict()["deadline_observed_failure_pct"], 100.0)
+
+    def test_extension_options_default_to_off_and_validate_parameters(self):
+        sim = self._outcome_scenario("EDCA")
+        self.assertFalse(sim.config.hidden_terminals)
+        self.assertEqual(sim.config.frame_error_rate, 0.0)
+        with patch.object(sim.error_rng, "random") as draw:
+            self.assertEqual(sim.run().high_success, 1)
+        draw.assert_not_called()
+        for options in ({"frame_error_rate": 1.0}, {"frame_error_rate": -0.01},
+                        {"stations": 3, "hidden_terminals": True}):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                MACConfig(**options)
 
     def test_deferral_advances_time_and_long_frame_resumes(self):
         for mode in MODES:

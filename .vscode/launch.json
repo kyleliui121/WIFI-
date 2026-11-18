@@ -41,6 +41,15 @@
       "justMyCode": true
     },
     {
+      "name": "跑选做拓展 1/2",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "wifi_sim.extensions",
+      "args": ["--out", "results/extensions", "--duration", "10", "--seeds", "42", "43", "44"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    },
+    {
       "name": "跑单元测试",
       "type": "debugpy",
       "request": "launch",
