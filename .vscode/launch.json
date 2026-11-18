@@ -1,0 +1,53 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: 当前文件",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true
+    },
+    {
+      "name": "跑实验矩阵（第27条）",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "wifi_sim.experiments",
+      "args": ["--out", "results/matrix", "--duration", "10", "--seeds", "42", "43", "44"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "跑第26条验证（NPCA）",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "tools.demo_npca",
+      "args": ["--duration", "10", "--seeds", "42", "43", "44", "--out", "results/npca"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "跑第28条分析",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "tools.analyze_28",
+      "args": ["--results", "results/matrix", "--out", "results/analysis28"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "跑单元测试",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "unittest",
+      "args": ["discover", "-s", "tests", "-v"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal"
+    }
+  ]
+}
