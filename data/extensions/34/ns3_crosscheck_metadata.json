@@ -1,0 +1,15 @@
+{
+  "ns3_version": "3.49",
+  "stations": [
+    10
+  ],
+  "modes": [
+    "DCF",
+    "EDCA"
+  ],
+  "duration_s": 10.0,
+  "seed": 42,
+  "scenario_sha256": "8956c925004001aa400c1e9b46ea8ca14f11babdc7e6254a25b6ec987e58b959",
+  "binary_sha256": "fc492d3d293c480e51d53738721b42db88bed8f18f249150cb64e6cc7650c478",
+  "csv_sha256": "064ee5c8d06e8b8725c31194f4ca9869329f1741c5af7de64b529730b091dd95"
+}

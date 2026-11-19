@@ -8,6 +8,7 @@
 - [建模假设、参数、统计口径与局限性](docs/methodology.md)
 - [第 28 条的时延改善与吞吐代价](docs/分析-28.md) · [交接说明](docs/交接说明.md) · [接手指南](docs/接手指南-ONBOARDING.md)
 - [选做拓展 1、2 的模型与结果](docs/拓展-12-说明.md) · [拓展接入记录](docs/拓展-12-接入记录.md)
+- [选做拓展 3、4 的四类业务与 ns-3 对照](docs/拓展-34-说明.md) · [ns-3 构建与运行](ns3ext/README.md)
 - [官方实验 CSV 摘要](data/official_summary.csv) · [Bianchi 对照](data/official_bianchi.csv) · [实验元信息](data/official_metadata.json)
 - [新版完整运行归档（逐帧/逐次 CSV、图表、配置与报告）](data/official_run.zip) · [验收报告](data/official_acceptance.md) · [运行入口和文件校验值](data/official_manifest.json)
 - [四类正式图表（PNG / PDF）](data/official_figures) · [逐次饱和 DCF 结果](data/official_dcf_runs.csv)
@@ -22,13 +23,15 @@ wifi_sim/
   priority.py     DCF、EDCA、P-EDCA、NPCA 共用 SimPy 事件仿真
   experiments.py  A 班仿真矩阵、随机种子、CSV 输出
   extensions.py   帧错误率与隐藏终端的配对实验
+  multiac.py      VO、VI、BE、BK 的四类业务模型
+  ext34.py        四类业务矩阵与干净信道对照
   plotting.py     四种必交图表生成（PNG / PDF）
   __main__.py     单次 DCF 运行入口
 tests/            关键退避与事件行为回归测试
 tools/            NPCA 专项验证、时延与吞吐分析、独立复核脚本
 ```
 
-**实现范围**涵盖全部必做模块及选做第 1、2 项。AC_VI/BK 与 ns-3 交叉校验属于后续拓展。
+**实现范围**涵盖全部必做模块及选做第 1–4 项。
 
 ## 运行环境
 
@@ -52,6 +55,7 @@ python -m unittest discover -s tests -v
 | `run_npca_demo.bat` | 第 26 条的 NPCA 专项检查、切换时延扫描和方案对比 | `results/npca/` |
 | `run_analysis.bat` | 读取第 27 条的结果，计算改善幅度与吞吐变化并生成图 05–06 | `results/analysis28/` |
 | `run_extensions.bat` | 独立帧错误、隐藏终端及配对基线，生成图 07–10 与汇总表 | `results/extensions/` |
+| `run_ext34.bat` | 四类业务、BK 敏感性、ns-3 数据对照及报告 | `results/ext34/` |
 
 `wifi_sim/` 中的模块使用包内相对导入，请从项目根目录用 `python -m wifi_sim.experiments` 运行实验。
 
@@ -91,6 +95,17 @@ python -m tools.analyze_extensions --results results/extensions
 ```
 
 每次运行都会生成匹配时长和种子的对照数据。帧错误率默认为 1%、2.5%、5%，可通过 `--rates` 传入 0 至 1 之间的概率。 [本次完整拓展结果](data/extensions/12/ext_tables.md)
+
+### 选做拓展 3、4
+
+```bash
+python -m pip install -r requirements-report.txt
+python -m wifi_sim.ext34 --out results/ext34
+python -m tools.aifs_sensitivity --out results/ext34
+python -m tools.build_report --results results/ext34 --ns3-csv data/extensions/34/ns3_crosscheck.csv
+```
+
+四类实验与按实际 QoS TID 核对过的 ns-3 原始数据存放在 `data/extensions/34/`。需要重跑 ns-3 时，先根据构建说明编译场景，再把可执行文件或共享库的路径传给驱动。
 
 ## A 班指定参数
 
